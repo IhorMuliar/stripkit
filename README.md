@@ -1,7 +1,7 @@
 # stripkit
 
 Strip metadata from images, videos and PDFs on macOS. Three ways to use it: a
-drop folder, a Finder right-click, and a CLI — all sharing one engine.
+drop folder, a Finder right-click, and a CLI, all sharing one engine.
 
 Photos and videos carry GPS coordinates, device model and serial, timestamps
 and software fingerprints. PDFs carry author names, editing tools and old
@@ -14,10 +14,10 @@ revisions. stripkit removes them before you share.
 | Images (jpg, png, webp, heic, tiff, gif) | exiftool | remove EXIF/IPTC/XMP, keep colour profile |
 | Video (mp4, mov, mkv, webm, avi) | ffmpeg | lossless remux, no re-encode |
 | PDF | exiftool + qpdf | clear DocInfo/XMP, rebuild to drop old revisions |
-| RAW (cr2, nef, arw, dng…) | — | refused (stripping breaks rendering) |
+| RAW (cr2, nef, arw, dng) | none | refused (stripping breaks rendering) |
 
-Originals are never modified. After stripping, each file is re-read and — if any
-GPS, serial or author tag survived — the output is discarded rather than shipped.
+Originals are never modified. After stripping, each file is re-read, and if any
+GPS, serial or author tag survived, the output is discarded rather than shipped.
 
 ## Install
 
@@ -35,16 +35,16 @@ the watch folder at `~/Strip`. Use `./install.sh --no-watch` to skip the folder.
 
 ## Use
 
-**Drop folder** — drop files into `~/Strip`. Cleaned copies appear in
+**Drop folder.** Drop files into `~/Strip`. Cleaned copies appear in
 `~/Strip/stripped/`, originals move to `~/Strip/originals/`, unsupported files to
 `~/Strip/skipped/`.
 
-**Finder** — select files, right-click → Quick Actions → Strip Metadata. Clean
+**Finder.** Select files, right-click, Quick Actions, Strip Metadata. Clean
 copies go to a `stripped/` folder next to the originals.
 
 **CLI**
 ```sh
-stripkit photo.jpg clip.mov doc.pdf   # clean copies → ./stripped/
+stripkit photo.jpg clip.mov doc.pdf   # clean copies go to ./stripped/
 stripkit inspect photo.jpg            # show what metadata is present
 stripkit watch                        # process the watch folder now
 ```
