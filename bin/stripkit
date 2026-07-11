@@ -1,0 +1,128 @@
+#!/usr/bin/env bash
+# stripkit — strip metadata from images, videos and PDFs.
+# https://github.com/IhorMuliar/stripkit
+set -uo pipefail
+export PATH="/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin"
+
+STRIPKIT_VERSION="0.1.0"
+
+# Resolve this script's real location through any symlink, so lib/ is found
+# whether invoked from the repo, ~/.local/bin, a Quick Action, or launchd.
+_src="${BASH_SOURCE[0]}"
+while [ -h "$_src" ]; do
+  _dir=$(cd -P "$(dirname "$_src")" >/dev/null 2>&1 && pwd)
+  _src=$(readlink "$_src"); [[ $_src != /* ]] && _src="$_dir/$_src"
+done
+ROOT=$(cd -P "$(dirname "$_src")/.." >/dev/null 2>&1 && pwd)
+
+# shellcheck source=/dev/null
+source "$ROOT/lib/config.sh"
+# shellcheck source=/dev/null
+source "$ROOT/lib/engines.sh"
+# shellcheck source=/dev/null
+source "$ROOT/lib/core.sh"
+
+die() { printf 'stripkit: %s\n' "$1" >&2; exit 1; }
+
+check_deps() {
+  local missing=()
+  for t in exiftool ffmpeg qpdf; do
+    command -v "$t" >/dev/null 2>&1 || missing+=("$t")
+  done
+  [ ${#missing[@]} -eq 0 ] || die "missing dependencies: ${missing[*]} (brew install ${missing[*]})"
+}
+
+usage() {
+  cat <<EOF
+stripkit $STRIPKIT_VERSION — remove metadata from images, videos and PDFs.
+
+USAGE
+  stripkit <file>...        Strip files; clean copies go to ./stripped/ next to each.
+  stripkit inspect <file>   Show privacy-relevant metadata without changing anything.
+  stripkit watch            Process everything in the watch folder ($STRIPKIT_WATCH_DIR).
+  stripkit version          Print version.
+  stripkit help             This help.
+
+Cleaned files keep their original name. Originals are never modified.
+Config via env vars (see lib/config.sh): STRIPKIT_WATCH_DIR, STRIPKIT_KEEP_ICC,
+STRIPKIT_FAIL_CLOSED, STRIPKIT_CLEAR_XATTR, STRIPKIT_NOTIFY.
+EOF
+}
+
+# stripkit <file>... — strip each into a sibling stripped/ folder.
+cmd_files() {
+  check_deps
+  local n_clean=0 n_skip=0 n_fail=0 status
+  for f in "$@"; do
+    [ -f "$f" ] || { printf 'skip (not a file): %s\n' "$f" >&2; continue; }
+    status=$(skt_strip_one "$f" "$(dirname "$f")/$STRIPKIT_OUT_DIR")
+    case "$status" in
+      cleaned) n_clean=$((n_clean+1)); printf 'cleaned  %s\n' "$f" ;;
+      skipped) n_skip=$((n_skip+1));  printf 'skipped  %s\n' "$f" ;;
+      failed)  n_fail=$((n_fail+1));  printf 'FAILED   %s\n' "$f" ;;
+    esac
+  done
+  local msg="$n_clean cleaned"
+  [ "$n_skip" -gt 0 ] && msg="$msg · $n_skip skipped"
+  [ "$n_fail" -gt 0 ] && msg="$msg · $n_fail failed"
+  skt_notify "stripkit" "$msg → $STRIPKIT_OUT_DIR/"
+  printf '%s\n' "$msg"
+  [ "$n_fail" -eq 0 ]
+}
+
+# stripkit inspect <file>... — read-only privacy report.
+cmd_inspect() {
+  check_deps
+  [ $# -gt 0 ] || die "inspect needs a file"
+  for f in "$@"; do
+    [ -f "$f" ] || { printf 'skip (not a file): %s\n' "$f" >&2; continue; }
+    printf '\n# %s  [%s]\n' "$(basename "$f")" "$(skt_kind "$f")"
+    # shellcheck disable=SC2086
+    exiftool -G1 -a -s $STRIPKIT_RISKY_TAGS "$f" 2>/dev/null | grep -v '^$' \
+      || printf '  (no privacy-relevant metadata found)\n'
+  done
+}
+
+# stripkit watch — sweep the drop folder into stripped/ originals/ skipped/.
+cmd_watch() {
+  check_deps
+  local out="$STRIPKIT_WATCH_DIR/$STRIPKIT_OUT_DIR"
+  local orig="$STRIPKIT_WATCH_DIR/$STRIPKIT_ORIG_DIR"
+  local skip="$STRIPKIT_WATCH_DIR/$STRIPKIT_SKIP_DIR"
+  mkdir -p "$out" "$orig" "$skip"
+
+  shopt -s nullglob dotglob
+  for f in "$STRIPKIT_WATCH_DIR"/*; do
+    base=$(basename "$f")
+    case "$base" in .DS_Store|.localized|.*) continue ;; esac
+    [ -f "$f" ] || continue
+    skt_wait_stable "$f" || { skt_log "SKIP (unstable): $base"; continue; }
+
+    status=$(skt_strip_one "$f" "$out")
+    case "$status" in
+      cleaned)
+        mv "$f" "$(skt_dest "$orig" "$base")"
+        skt_notify "stripkit" "$base cleaned" ;;
+      skipped)
+        mv "$f" "$(skt_dest "$skip" "$base")"
+        skt_notify "stripkit" "$base skipped (unsupported)" ;;
+      failed)
+        mv "$f" "$(skt_dest "$skip" "$base")"
+        skt_notify "stripkit" "$base FAILED — original kept" ;;
+    esac
+  done
+}
+
+main() {
+  local cmd="${1:-help}"
+  case "$cmd" in
+    inspect) shift; cmd_inspect "$@" ;;
+    watch)   cmd_watch ;;
+    version|--version|-v) printf 'stripkit %s\n' "$STRIPKIT_VERSION" ;;
+    help|--help|-h) usage ;;
+    -*) die "unknown option: $cmd" ;;
+    *) cmd_files "$@" ;;   # anything else is treated as file paths
+  esac
+}
+
+main "$@"
