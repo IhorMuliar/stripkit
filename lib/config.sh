@@ -16,6 +16,9 @@ STRIPKIT_SKIP_DIR="${STRIPKIT_SKIP_DIR:-skipped}"
 # Shared log file.
 STRIPKIT_LOG="${STRIPKIT_LOG:-$HOME/Library/Logs/stripkit.log}"
 
+# External tools the engines shell out to; used by check_deps and install.sh.
+STRIPKIT_DEPS="exiftool ffmpeg qpdf"
+
 # Behaviour flags (1 = on, 0 = off).
 STRIPKIT_KEEP_ICC="${STRIPKIT_KEEP_ICC:-1}"      # preserve colour profile when stripping images
 STRIPKIT_CLEAR_XATTR="${STRIPKIT_CLEAR_XATTR:-1}" # also clear macOS extended attributes (download origin, tags)

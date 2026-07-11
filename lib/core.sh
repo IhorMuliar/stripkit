@@ -3,7 +3,7 @@
 # engines.sh being sourced first.
 
 skt_log() {
-  mkdir -p "$(dirname "$STRIPKIT_LOG")"
+  [ -n "${_skt_log_ready:-}" ] || { mkdir -p "${STRIPKIT_LOG%/*}"; _skt_log_ready=1; }
   printf '%s %s\n' "$(date '+%Y-%m-%d %H:%M:%S')" "$*" >> "$STRIPKIT_LOG"
 }
 
@@ -14,14 +14,18 @@ skt_notify() {
   osascript -e "display notification \"$2\" with title \"$1\"" >/dev/null 2>&1
 }
 
-# Classify a file by extension → image | video | pdf | raw | unsupported
+# Classify a file by extension → image | video | pdf | raw | unsupported.
+# Drives off the STRIPKIT_EXT_<KIND> groups so a new type is a config-only change.
 skt_kind() {
-  local lc; lc=$(printf '%s' "${1##*.}" | tr '[:upper:]' '[:lower:]')
-  local e
-  for e in $STRIPKIT_EXT_IMAGE; do [ "$lc" = "$e" ] && { echo image; return; }; done
-  for e in $STRIPKIT_EXT_VIDEO; do [ "$lc" = "$e" ] && { echo video; return; }; done
-  for e in $STRIPKIT_EXT_PDF;   do [ "$lc" = "$e" ] && { echo pdf;   return; }; done
-  for e in $STRIPKIT_EXT_RAW;   do [ "$lc" = "$e" ] && { echo raw;   return; }; done
+  local lc pair exts e
+  lc=$(printf '%s' "${1##*.}" | tr '[:upper:]' '[:lower:]')
+  for pair in "image:$STRIPKIT_EXT_IMAGE" "video:$STRIPKIT_EXT_VIDEO" \
+              "pdf:$STRIPKIT_EXT_PDF" "raw:$STRIPKIT_EXT_RAW"; do
+    exts="${pair#*:}"
+    for e in $exts; do
+      [ "$lc" = "$e" ] && { echo "${pair%%:*}"; return; }
+    done
+  done
   echo unsupported
 }
 
@@ -46,8 +50,8 @@ skt_dest() {
 # Block until a file's size stops changing (guards against still-copying files).
 # Returns 1 if it never settles or vanishes.
 skt_wait_stable() {
-  local f="$1" prev=-1 size _
-  for _ in $(seq 1 30); do
+  local f="$1" prev=-1 size i
+  for ((i = 0; i < 30; i++)); do
     size=$(stat -f %z "$f" 2>/dev/null) || return 1
     [ "$size" = "$prev" ] && [ "$size" != "0" ] && return 0
     prev=$size
@@ -56,31 +60,24 @@ skt_wait_stable() {
   return 1
 }
 
-# Strip one file. Writes the clean copy into <outdir>, returns:
-#   0 cleaned · 2 skipped (raw/unsupported) · 1 failed
-# Echoes a one-word status the caller can use.
+# Strip one file. Writes the clean copy into <outdir> and echoes a status word:
+#   cleaned · skipped (raw/unsupported) · failed
 skt_strip_one() {
-  local src="$1" outdir="$2" base kind before after out ok=0
-  base=$(basename "$src")
+  local src="$1" outdir="$2" base kind out after
+  base="${src##*/}"
   kind=$(skt_kind "$base")
 
   case "$kind" in
-    raw)         skt_log "REFUSED (raw): $src";        echo skipped; return 2 ;;
-    unsupported) skt_log "SKIP (unsupported): $src";   echo skipped; return 2 ;;
+    raw)         skt_log "REFUSED (raw): $src";      echo skipped; return ;;
+    unsupported) skt_log "SKIP (unsupported): $src"; echo skipped; return ;;
   esac
 
   mkdir -p "$outdir"
-  before=$(skt_risky_tags "$src")
   out=$(skt_dest "$outdir" "$base")
 
-  case "$kind" in
-    image) engine_image "$src" "$out" && ok=1 ;;
-    video) engine_video "$src" "$out" && ok=1 ;;
-    pdf)   engine_pdf   "$src" "$out" && ok=1 ;;
-  esac
-
-  if [ "$ok" != "1" ] || [ ! -s "$out" ]; then
-    rm -f "$out"; skt_log "FAILED: $src"; echo failed; return 1
+  # Engines are named engine_<kind>, matching what skt_kind returns.
+  if ! "engine_$kind" "$src" "$out" || [ ! -s "$out" ]; then
+    rm -f "$out"; skt_log "FAILED: $src"; echo failed; return
   fi
 
   after=$(skt_risky_tags "$out")
@@ -89,11 +86,11 @@ skt_strip_one() {
   if [ "$STRIPKIT_FAIL_CLOSED" = "1" ] && [ "$after" != "0" ]; then
     rm -f "$out"
     skt_log "FAILED (residual $after tags): $src"
-    echo failed; return 1
+    echo failed; return
   fi
 
   [ "$STRIPKIT_CLEAR_XATTR" = "1" ] && xattr -c "$out" 2>/dev/null
 
-  skt_log "CLEANED: $src — tags $before -> $after -> $out"
-  echo cleaned; return 0
+  skt_log "CLEANED: $src ($after tags remain) -> $out"
+  echo cleaned
 }

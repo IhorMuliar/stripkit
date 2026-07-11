@@ -10,10 +10,12 @@
 set -euo pipefail
 
 REPO=$(cd -P "$(dirname "${BASH_SOURCE[0]}")" && pwd)
+# shellcheck source=lib/config.sh
+source "$REPO/lib/config.sh"   # reuse STRIPKIT_DEPS, STRIPKIT_WATCH_DIR, etc.
 BIN_DIR="$HOME/.local/bin"
 SERVICES_DIR="$HOME/Library/Services"
 AGENTS_DIR="$HOME/Library/LaunchAgents"
-WATCH_DIR="${STRIPKIT_WATCH_DIR:-$HOME/Strip}"
+WATCH_DIR="$STRIPKIT_WATCH_DIR"
 WANT_WATCH=1
 [ "${1:-}" = "--no-watch" ] && WANT_WATCH=0
 
@@ -23,7 +25,7 @@ echo "Installing stripkit from $REPO"
 
 # 1. dependencies -------------------------------------------------------------
 missing=()
-for t in exiftool ffmpeg qpdf; do command -v "$t" >/dev/null 2>&1 || missing+=("$t"); done
+for t in $STRIPKIT_DEPS; do command -v "$t" >/dev/null 2>&1 || missing+=("$t"); done
 if [ ${#missing[@]} -gt 0 ]; then
   if command -v brew >/dev/null 2>&1; then
     say "installing dependencies: ${missing[*]}"

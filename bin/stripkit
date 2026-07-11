@@ -26,7 +26,7 @@ die() { printf 'stripkit: %s\n' "$1" >&2; exit 1; }
 
 check_deps() {
   local missing=()
-  for t in exiftool ffmpeg qpdf; do
+  for t in $STRIPKIT_DEPS; do
     command -v "$t" >/dev/null 2>&1 || missing+=("$t")
   done
   [ ${#missing[@]} -eq 0 ] || die "missing dependencies: ${missing[*]} (brew install ${missing[*]})"
@@ -51,7 +51,6 @@ EOF
 
 # stripkit <file>... — strip each into a sibling stripped/ folder.
 cmd_files() {
-  check_deps
   local n_clean=0 n_skip=0 n_fail=0 status
   for f in "$@"; do
     [ -f "$f" ] || { printf 'skip (not a file): %s\n' "$f" >&2; continue; }
@@ -72,7 +71,6 @@ cmd_files() {
 
 # stripkit inspect <file>... — read-only privacy report.
 cmd_inspect() {
-  check_deps
   [ $# -gt 0 ] || die "inspect needs a file"
   for f in "$@"; do
     [ -f "$f" ] || { printf 'skip (not a file): %s\n' "$f" >&2; continue; }
@@ -85,7 +83,6 @@ cmd_inspect() {
 
 # stripkit watch — sweep the drop folder into stripped/ originals/ skipped/.
 cmd_watch() {
-  check_deps
   local out="$STRIPKIT_WATCH_DIR/$STRIPKIT_OUT_DIR"
   local orig="$STRIPKIT_WATCH_DIR/$STRIPKIT_ORIG_DIR"
   local skip="$STRIPKIT_WATCH_DIR/$STRIPKIT_SKIP_DIR"
@@ -116,10 +113,13 @@ cmd_watch() {
 main() {
   local cmd="${1:-help}"
   case "$cmd" in
+    version|--version|-v) printf 'stripkit %s\n' "$STRIPKIT_VERSION"; return ;;
+    help|--help|-h)       usage; return ;;
+  esac
+  check_deps   # every real command needs the engines present
+  case "$cmd" in
     inspect) shift; cmd_inspect "$@" ;;
     watch)   cmd_watch ;;
-    version|--version|-v) printf 'stripkit %s\n' "$STRIPKIT_VERSION" ;;
-    help|--help|-h) usage ;;
     -*) die "unknown option: $cmd" ;;
     *) cmd_files "$@" ;;   # anything else is treated as file paths
   esac
